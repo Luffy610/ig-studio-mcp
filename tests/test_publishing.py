@@ -85,7 +85,9 @@ async def test_publish_image_flow(client: IGClient, api: respx.MockRouter) -> No
     routes = _mock_single_publish(api)
     result = await client.publish_image(IMG, "Morning ride #moto")
     assert _form(routes["create"].calls.last.request) | {"access_token": "x"} == {
-        "image_url": IMG, "caption": "Morning ride #moto", "access_token": "x",
+        "image_url": IMG,
+        "caption": "Morning ride #moto",
+        "access_token": "x",
     }
     assert _form(routes["publish"].calls.last.request)["creation_id"] == "CONT1"
     assert result.executed and result.media_id == "MEDIA1" and result.container_ids == ["CONT1"]
@@ -142,18 +144,36 @@ async def test_permalink_failure_does_not_fail_publish(client: IGClient, api: re
 
 
 async def test_image_fetch_error_is_actionable(client: IGClient, api: respx.MockRouter) -> None:
-    api.post(f"/{USER_ID}/media").mock(return_value=httpx.Response(400, json={"error": {
-        "message": "The media could not be fetched from this uri", "code": 9004, "error_subcode": 2207052,
-    }}))
+    api.post(f"/{USER_ID}/media").mock(
+        return_value=httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": "The media could not be fetched from this uri",
+                    "code": 9004,
+                    "error_subcode": 2207052,
+                }
+            },
+        )
+    )
     with pytest.raises(MetaAPIError, match="must be public"):
         await client.publish_image(IMG)
 
 
 async def test_daily_limit_error(client: IGClient, api: respx.MockRouter) -> None:
     routes = _mock_single_publish(api)
-    routes["publish"].mock(return_value=httpx.Response(400, json={"error": {
-        "message": "You reached maximum number of posts", "code": 9, "error_subcode": 2207042,
-    }}))
+    routes["publish"].mock(
+        return_value=httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": "You reached maximum number of posts",
+                    "code": 9,
+                    "error_subcode": 2207042,
+                }
+            },
+        )
+    )
     with pytest.raises(MetaAPIError, match="Daily publishing limit"):
         await client.publish_image(IMG)
 
@@ -230,9 +250,9 @@ async def test_publish_preview_makes_no_http_calls(no_http: respx.MockRouter, to
 
 
 async def test_preview_shows_trimmed_caption_and_warnings(no_http: respx.MockRouter) -> None:
-    preview = (await server.mcp.call_tool(
-        "publish_image", {"image_url": "https://x.com/a.png", "caption": "  hi  "}
-    )).structured_content
+    preview = (
+        await server.mcp.call_tool("publish_image", {"image_url": "https://x.com/a.png", "caption": "  hi  "})
+    ).structured_content
     assert preview["caption"] == "hi"
     assert any("JPEG" in n for n in preview["notes"])
 
@@ -261,9 +281,9 @@ async def test_invalid_posts_rejected_without_http(
 
 async def test_publish_image_tool_confirmed(api: respx.MockRouter, wired: IGClient) -> None:
     _mock_single_publish(api)
-    result = (await server.mcp.call_tool(
-        "publish_image", {"image_url": IMG, "caption": "Go", "confirm": True}
-    )).structured_content
+    result = (
+        await server.mcp.call_tool("publish_image", {"image_url": IMG, "caption": "Go", "confirm": True})
+    ).structured_content
     assert result["executed"] is True and result["permalink"] == "https://instagram.com/p/abc"
 
 

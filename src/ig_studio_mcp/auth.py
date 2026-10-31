@@ -1,9 +1,10 @@
 """Credential loading and persistence.
 
-Only the access token is required. It is a Facebook Login token (system-user
-or user token, starting with "EAA"); the Instagram account ID is discovered
-from it, and its expiry is read from Meta's debug_token endpoint. The HTTP
-calls live in `client.py`; this module only loads, describes and persists.
+Only the access token is required. It is a graph.facebook.com token starting
+with "EAA" (a Unified Login system-user token, or a Facebook Login user token);
+the Instagram account ID is discovered from it, and its expiry is read from
+Meta's debug_token endpoint. The HTTP calls live in `client.py`; this module
+only loads, describes and persists.
 
 Values in the .env file win over process environment variables, so a token
 written back to .env is always the one used. The token is never logged or
@@ -25,7 +26,7 @@ from dotenv import dotenv_values, set_key
 from .errors import ConfigError
 
 ENV_FILE_VAR = "IG_STUDIO_ENV_FILE"
-ENV_KEYS = ("IG_ACCESS_TOKEN", "IG_USER_ID", "IG_APP_ID", "IG_APP_SECRET")
+ENV_KEYS = ("IG_ACCESS_TOKEN", "IG_ACCOUNT_ID", "META_APP_ID", "META_APP_SECRET")
 REFRESH_WINDOW = timedelta(days=10)  # re-exchange expiring user tokens this close to expiry
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -121,14 +122,14 @@ class TokenStore:
         if token.startswith("IG"):
             raise ConfigError(
                 "IG_ACCESS_TOKEN is an Instagram Login token (starts with 'IG'), but this server uses the "
-                "Facebook Graph API, which needs a Facebook Login token (starts with 'EAA'). "
-                "See README -> 'Token setup'."
+                "Instagram API with Unified Login on graph.facebook.com, which needs a token starting with 'EAA'. "
+                "See docs/TOKEN_SETUP.md."
             )
         return Credentials(
             access_token=token,
-            user_id=self.value("IG_USER_ID"),
-            app_id=self.value("IG_APP_ID"),
-            app_secret=self.value("IG_APP_SECRET"),
+            user_id=self.value("IG_ACCOUNT_ID"),
+            app_id=self.value("META_APP_ID"),
+            app_secret=self.value("META_APP_SECRET"),
         )
 
     def save_token(self, access_token: str) -> None:

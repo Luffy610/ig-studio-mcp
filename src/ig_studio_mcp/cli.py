@@ -27,7 +27,7 @@ def _check() -> int:
         async with IGClient(store, auto_refresh=False) as client:
             status = await client.token_status()
             if not status.is_valid:
-                print("Token is not valid (expired or revoked). See README -> 'Token setup'.")
+                print("Token is not valid (expired or revoked). See docs/TOKEN_SETUP.md.")
                 return 1
             expiry = "never expires" if status.expires_at is None else f"expires {status.expires_at:%Y-%m-%d %H:%M} UTC"
             print(f"Token: {status.type or 'unknown type'} for app '{status.application}', {expiry}")

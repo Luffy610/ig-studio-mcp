@@ -1,4 +1,4 @@
-"""Async client for Meta's Instagram API with Facebook Login (graph.facebook.com).
+"""Async client for Meta's Instagram API with Unified Login (graph.facebook.com).
 
 All HTTP calls live here. Methods return trimmed pydantic models from
 `models.py`; failures raise `IGStudioError` subclasses with actionable messages.
@@ -53,8 +53,14 @@ log = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-# Permissions the Phase 1 tools rely on (Facebook Login names).
-REQUIRED_SCOPES = ("instagram_basic", "instagram_manage_comments", "instagram_manage_insights", "pages_read_engagement")
+# Permissions the tools rely on (Unified Login names). instagram_manage_insights is not
+# in Meta's default configuration and has to be added by hand.
+REQUIRED_SCOPES = (
+    "instagram_basic",
+    "instagram_manage_comments",
+    "instagram_manage_insights",
+    "instagram_content_publish",
+)
 
 PROFILE_FIELDS = "id,username,name,biography,website,followers_count,follows_count,media_count"
 MEDIA_FIELDS = "id,caption,media_type,media_product_type,timestamp,like_count,comments_count,permalink"
@@ -64,23 +70,51 @@ COMMENT_FIELDS = "id,username,from,text,timestamp,like_count,hidden,replies{id}"
 # `impressions`, `plays`, `video_views` and `engagement` are deprecated and deliberately absent.
 MEDIA_METRICS: dict[str, list[str]] = {
     "FEED": [
-        "reach", "likes", "comments", "saved", "shares",
-        "total_interactions", "views", "profile_visits", "follows",
+        "reach",
+        "likes",
+        "comments",
+        "saved",
+        "shares",
+        "total_interactions",
+        "views",
+        "profile_visits",
+        "follows",
     ],
     "REELS": [
-        "reach", "likes", "comments", "saved", "shares", "total_interactions", "views",
-        "ig_reels_avg_watch_time", "ig_reels_video_view_total_time",
+        "reach",
+        "likes",
+        "comments",
+        "saved",
+        "shares",
+        "total_interactions",
+        "views",
+        "ig_reels_avg_watch_time",
+        "ig_reels_video_view_total_time",
     ],
     "STORY": [
-        "reach", "shares", "total_interactions", "views",
-        "replies", "navigation", "follows", "profile_visits",
+        "reach",
+        "shares",
+        "total_interactions",
+        "views",
+        "replies",
+        "navigation",
+        "follows",
+        "profile_visits",
     ],
 }
 METRIC_RENAMES = {"saved": "saves"}
 
 ACCOUNT_METRICS = [
-    "reach", "views", "accounts_engaged", "total_interactions", "likes", "comments",
-    "shares", "saves", "replies", "profile_links_taps",
+    "reach",
+    "views",
+    "accounts_engaged",
+    "total_interactions",
+    "likes",
+    "comments",
+    "shares",
+    "saves",
+    "replies",
+    "profile_links_taps",
 ]
 # follows_and_unfollows only returns a value with breakdown=follow_type, so it gets its own call.
 FOLLOW_TYPE_NAMES = {"FOLLOWER": "follows", "NON_FOLLOWER": "unfollows"}
@@ -334,7 +368,7 @@ class IGClient:
                 if isinstance(result, MetaAPIError) and result.is_invalid_parameter:
                     continue
                 if isinstance(result, BaseException):
-                    raise result
+                    raise result from exc
                 values.update(_parse_metric_values(result))
         unavailable = [m for m in metrics if METRIC_RENAMES.get(m, m) not in values]
         return values, unavailable
@@ -364,11 +398,13 @@ class IGClient:
             for page in pages.get("data", []):
                 ig = page.get("instagram_business_account")
                 if ig and ig.get("id"):
-                    accounts[ig["id"]] = AccountRef(id=ig["id"], username=ig.get("username"), page_name=page.get("name"))
+                    accounts[ig["id"]] = AccountRef(
+                        id=ig["id"], username=ig.get("username"), page_name=page.get("name")
+                    )
         return list(accounts.values())
 
     async def _user_path(self) -> str:
-        """The Instagram account ID: IG_USER_ID if set, else discovered from the token (cached)."""
+        """The Instagram account ID: IG_ACCOUNT_ID if set, else discovered from the token (cached)."""
         if self._user_id is None:
             creds = await self._credentials()
             self._user_id = creds.user_id or await self._discover_account()
@@ -385,7 +421,9 @@ class IGClient:
                 "-> Assign assets). For a user token, link the Instagram account to a Facebook Page you manage."
             )
         listed = ", ".join(f"@{a.username} ({a.id})" for a in accounts)
-        raise ConfigError(f"This token can manage several Instagram accounts: {listed}. Set IG_USER_ID in .env to pick one.")
+        raise ConfigError(
+            f"This token can manage several Instagram accounts: {listed}. Set IG_ACCOUNT_ID in .env to pick one."
+        )
 
     # ------------------------------------------------------------------ read API
 
@@ -562,7 +600,9 @@ class IGClient:
             if code == "ERROR":
                 raise MetaAPIError(container_error_message(payload.get("status")))
             if code == "EXPIRED":
-                raise MetaAPIError(f"Media container {container_id} expired (not published within 24 hours). Publish again.")
+                raise MetaAPIError(
+                    f"Media container {container_id} expired (not published within 24 hours). Publish again."
+                )
             if code == "PUBLISHED":
                 raise MetaAPIError(f"Media container {container_id} was already published.")
             raise MetaAPIError(f"Media container {container_id} is in an unexpected state: {code}.")
@@ -573,9 +613,7 @@ class IGClient:
 
     async def _publish_container(self, container_id: str) -> tuple[str, list[str]]:
         """Publish a FINISHED container; return (media_id, notes)."""
-        payload = await self._request(
-            "POST", f"{await self._user_path()}/media_publish", {"creation_id": container_id}
-        )
+        payload = await self._request("POST", f"{await self._user_path()}/media_publish", {"creation_id": container_id})
         notes = [
             f"Published, but Instagram reported {key}={payload[key]}."
             for key in ("config_issue", "caption_add_on_attachment_status")
@@ -623,9 +661,9 @@ class IGClient:
                 f"A carousel needs {CAROUSEL_MIN_ITEMS}-{CAROUSEL_MAX_ITEMS} images; got {len(image_urls)}."
             )
         self._check_post(image_urls, caption)
-        child_ids = list(await asyncio.gather(
-            *(self._create_image_container(url, is_carousel_item=True) for url in image_urls)
-        ))
+        child_ids = list(
+            await asyncio.gather(*(self._create_image_container(url, is_carousel_item=True) for url in image_urls))
+        )
         await asyncio.gather(*(self._wait_until_finished(child) for child in child_ids))
         parent_id = await self._create_carousel_container(child_ids, caption)
         await self._wait_until_finished(parent_id)
@@ -651,20 +689,20 @@ class IGClient:
         return parse_token_status(payload.get("data") or {})
 
     async def refresh_access_token(self, creds: Credentials | None = None) -> TokenInfo:
-        """Re-exchange the current user token for a fresh long-lived one (needs IG_APP_ID and IG_APP_SECRET)."""
+        """Re-exchange the current user token for a fresh long-lived one (needs META_APP_ID and META_APP_SECRET)."""
         creds = creds or self.store.load()
         return await self._exchange(creds.access_token, creds.app_id, creds.app_secret)
 
     async def exchange_short_lived_token(self, short_lived_token: str) -> TokenInfo:
         """Swap a short-lived user token for a ~60-day long-lived one and save it to .env."""
         return await self._exchange(
-            short_lived_token.strip(), self.store.value("IG_APP_ID"), self.store.value("IG_APP_SECRET")
+            short_lived_token.strip(), self.store.value("META_APP_ID"), self.store.value("META_APP_SECRET")
         )
 
     async def _exchange(self, token: str, app_id: str | None, app_secret: str | None) -> TokenInfo:
         if not (app_id and app_secret):
             raise ConfigError(
-                "IG_APP_ID and IG_APP_SECRET must be set in .env to exchange tokens "
+                "META_APP_ID and META_APP_SECRET must be set in .env to exchange tokens "
                 "(Meta app dashboard -> App settings -> Basic)."
             )
         payload = await self._request(

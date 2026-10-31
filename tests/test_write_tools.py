@@ -95,9 +95,9 @@ async def test_blank_comment_id_rejected_without_http(no_http: respx.MockRouter,
 
 async def test_reply_confirmed(api: respx.MockRouter, wired: IGClient) -> None:
     route = api.post("/C1/replies").respond(json={"id": "R9"})
-    result = (await server.mcp.call_tool(
-        "reply_to_comment", {"comment_id": "C1", "message": " Thanks! ", "confirm": True}
-    )).structured_content
+    result = (
+        await server.mcp.call_tool("reply_to_comment", {"comment_id": "C1", "message": " Thanks! ", "confirm": True})
+    ).structured_content
     assert result["executed"] is True and result["success"] is True and result["reply_id"] == "R9"
     request = route.calls.last.request
     body = parse_qs(request.content.decode())
@@ -108,9 +108,9 @@ async def test_reply_confirmed(api: respx.MockRouter, wired: IGClient) -> None:
 @pytest.mark.parametrize(("hide", "expected"), [(True, "true"), (False, "false")])
 async def test_hide_confirmed(api: respx.MockRouter, wired: IGClient, hide: bool, expected: str) -> None:
     route = api.post("/C1").respond(json={"success": True})
-    result = (await server.mcp.call_tool(
-        "hide_comment", {"comment_id": "C1", "hide": hide, "confirm": True}
-    )).structured_content
+    result = (
+        await server.mcp.call_tool("hide_comment", {"comment_id": "C1", "hide": hide, "confirm": True})
+    ).structured_content
     assert result["executed"] is True and result["success"] is True
     assert parse_qs(route.calls.last.request.content.decode())["hide"] == [expected]
 
@@ -123,9 +123,11 @@ async def test_delete_confirmed(api: respx.MockRouter, wired: IGClient) -> None:
 
 
 async def test_reply_to_hidden_comment_error_is_actionable(api: respx.MockRouter, wired: IGClient) -> None:
-    api.post("/C1/replies").mock(return_value=httpx.Response(
-        400, json={"error": {"message": f"Cannot reply to hidden comment (token {TOKEN})", "code": 100}}
-    ))
+    api.post("/C1/replies").mock(
+        return_value=httpx.Response(
+            400, json={"error": {"message": f"Cannot reply to hidden comment (token {TOKEN})", "code": 100}}
+        )
+    )
     with pytest.raises(ToolError) as info:
         await server.mcp.call_tool("reply_to_comment", {"comment_id": "C1", "message": "hi", "confirm": True})
     assert "hidden comment" in str(info.value)

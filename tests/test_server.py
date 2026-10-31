@@ -24,7 +24,11 @@ async def _wire_client(store: TokenStore) -> AsyncIterator[None]:
 
 
 READ_TOOLS = {
-    "get_profile", "list_recent_media", "get_media_comments", "get_media_insights", "get_account_insights",
+    "get_profile",
+    "list_recent_media",
+    "get_media_comments",
+    "get_media_insights",
+    "get_account_insights",
     "get_publishing_limit",
 }
 WRITE_TOOLS = {"reply_to_comment", "hide_comment", "delete_comment", "publish_image", "publish_carousel"}
@@ -57,12 +61,14 @@ async def test_get_profile_tool_returns_structured(api: respx.MockRouter) -> Non
 
 
 async def test_tool_error_is_actionable_and_redacted(api: respx.MockRouter) -> None:
-    api.get(f"/{USER_ID}").mock(return_value=httpx.Response(
-        401, json={"error": {"message": f"Invalid OAuth access token {TOKEN}", "code": 190}}
-    ))
+    api.get(f"/{USER_ID}").mock(
+        return_value=httpx.Response(
+            401, json={"error": {"message": f"Invalid OAuth access token {TOKEN}", "code": 190}}
+        )
+    )
     with pytest.raises(ToolError) as info:
         await server.mcp.call_tool("get_profile", {})
-    assert "Token setup" in str(info.value)
+    assert "TOKEN_SETUP.md" in str(info.value)
     assert TOKEN not in str(info.value)
 
 

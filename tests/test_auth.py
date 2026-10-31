@@ -22,7 +22,7 @@ def test_load_needs_only_token(store: TokenStore) -> None:
 
 def test_load_optional_values(tmp_path: Path) -> None:
     env = tmp_path / ".env"
-    write_env(env, IG_USER_ID=USER_ID, IG_APP_ID="123", IG_APP_SECRET="shh")
+    write_env(env, IG_ACCOUNT_ID=USER_ID, META_APP_ID="123", META_APP_SECRET="shh")
     creds = TokenStore(env).load()
     assert (creds.user_id, creds.app_id, creds.app_secret) == (USER_ID, "123", "shh")
 
@@ -45,13 +45,13 @@ def test_missing_token_is_config_error(tmp_path: Path) -> None:
 def test_instagram_login_token_rejected(tmp_path: Path) -> None:
     env = tmp_path / ".env"
     write_env(env, token="IGAAsomething")
-    with pytest.raises(ConfigError, match="Facebook Login token"):
+    with pytest.raises(ConfigError, match="token starting with 'EAA'"):
         TokenStore(env).load()
 
 
 def test_secrets_not_in_repr(tmp_path: Path) -> None:
     env = tmp_path / ".env"
-    write_env(env, IG_APP_SECRET="shh-secret")
+    write_env(env, META_APP_SECRET="shh-secret")
     text = repr(TokenStore(env).load())
     assert TOKEN not in text and "shh-secret" not in text
 
@@ -63,7 +63,9 @@ def test_appsecret_proof() -> None:
 
 
 def test_parse_token_status_never_expires() -> None:
-    status = parse_token_status({"is_valid": True, "type": "SYSTEM_USER", "expires_at": 0, "scopes": ["instagram_basic"]})
+    status = parse_token_status(
+        {"is_valid": True, "type": "SYSTEM_USER", "expires_at": 0, "scopes": ["instagram_basic"]}
+    )
     assert status.expires_at is None and not status.needs_refresh()
     assert status.missing_scopes(("instagram_basic", "pages_read_engagement")) == ["pages_read_engagement"]
 
@@ -76,10 +78,10 @@ def test_needs_refresh_window(days_left: int, needs: bool) -> None:
 
 def test_save_token_keeps_other_keys(tmp_path: Path) -> None:
     env = tmp_path / ".env"
-    write_env(env, IG_USER_ID=USER_ID)
+    write_env(env, IG_ACCOUNT_ID=USER_ID)
     TokenStore(env).save_token("EAAnew")
     values = dotenv_values(env)
-    assert values["IG_ACCESS_TOKEN"] == "EAAnew" and values["IG_USER_ID"] == USER_ID
+    assert values["IG_ACCESS_TOKEN"] == "EAAnew" and values["IG_ACCOUNT_ID"] == USER_ID
 
 
 def test_save_token_creates_missing_file(tmp_path: Path) -> None:

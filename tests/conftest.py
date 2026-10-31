@@ -18,7 +18,12 @@ NEVER_EXPIRES = {
         "type": "SYSTEM_USER",
         "application": "test app",
         "expires_at": 0,
-        "scopes": ["instagram_basic", "instagram_manage_comments", "instagram_manage_insights", "pages_read_engagement"],
+        "scopes": [
+            "instagram_basic",
+            "instagram_manage_comments",
+            "instagram_manage_insights",
+            "instagram_content_publish",
+        ],
     }
 }
 
@@ -30,7 +35,7 @@ def write_env(path: Path, *, token: str = TOKEN, **extra: str) -> None:
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for key in ("IG_USER_ID", "IG_ACCESS_TOKEN", "IG_APP_ID", "IG_APP_SECRET", "IG_STUDIO_ENV_FILE"):
+    for key in ("IG_ACCOUNT_ID", "IG_ACCESS_TOKEN", "META_APP_ID", "META_APP_SECRET", "IG_STUDIO_ENV_FILE"):
         monkeypatch.delenv(key, raising=False)
 
 

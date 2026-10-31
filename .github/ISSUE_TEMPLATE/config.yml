@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Token setup help
+    url: https://github.com/Luffy610/ig-studio-mcp/blob/master/docs/TOKEN_SETUP.md#troubleshooting
+    about: Most setup problems are covered in the token guide's troubleshooting table.
+  - name: Report a security vulnerability
+    url: https://github.com/Luffy610/ig-studio-mcp/security/advisories/new
+    about: Please report security issues privately, not as a public issue.

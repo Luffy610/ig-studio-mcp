@@ -15,7 +15,7 @@ import httpx
 
 _TOKEN_PATTERN = re.compile(r"(access_token|client_secret)=[^&\s\"']+", re.IGNORECASE)
 
-TOKEN_HELP = "see README -> 'Token setup'"
+TOKEN_HELP = "see docs/TOKEN_SETUP.md"
 
 
 def redact(text: str, *secrets: str | None) -> str:
@@ -164,8 +164,8 @@ def friendly_message(
     elif code in PERMISSION_CODES:
         hint = (
             "Permission denied. Make sure the token has the required permissions (instagram_basic, "
-            "instagram_manage_comments, instagram_manage_insights, pages_read_engagement) and that the "
-            "Instagram account is assigned to the token's (system) user in Business settings."
+            "instagram_manage_comments, instagram_manage_insights, instagram_content_publish) and that "
+            "the Instagram account is assigned to the token's system user. See docs/TOKEN_SETUP.md."
         )
     elif code == 100 and subcode == 33:
         hint = "Object not found, or this token can't access it. Double-check the ID (use list_recent_media / get_media_comments to get valid IDs)."

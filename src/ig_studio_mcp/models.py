@@ -45,9 +45,7 @@ class Comment(BaseModel):
     like_count: int | None = None
     hidden: bool | None = None
     reply_count: int = 0
-    reply_count_is_partial: bool = Field(
-        False, description="True if the comment has more replies than were counted"
-    )
+    reply_count_is_partial: bool = Field(False, description="True if the comment has more replies than were counted")
 
 
 class CommentList(BaseModel):
@@ -61,12 +59,8 @@ class MediaInsights(BaseModel):
     media_id: str
     media_type: str | None = None
     media_product_type: str | None = None
-    metrics: dict[str, MetricValue] = Field(
-        description="Lifetime metric values. `saved` is reported as `saves`."
-    )
-    unavailable: list[str] = Field(
-        default_factory=list, description="Metrics Instagram did not return for this media"
-    )
+    metrics: dict[str, MetricValue] = Field(description="Lifetime metric values. `saved` is reported as `saves`.")
+    unavailable: list[str] = Field(default_factory=list, description="Metrics Instagram did not return for this media")
     notes: list[str] = Field(default_factory=list)
 
 

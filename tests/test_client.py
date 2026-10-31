@@ -36,9 +36,16 @@ def _expiring(days_left: float) -> dict:
 
 async def test_get_profile(client: IGClient, api: respx.MockRouter) -> None:
     route = api.get(f"/{USER_ID}").respond(
-        json={"id": USER_ID, "username": "studio", "name": "Studio", "biography": "hello",
-              "followers_count": 1200, "follows_count": 80, "media_count": 42,
-              "profile_picture_url": "https://cdn/x.jpg"}
+        json={
+            "id": USER_ID,
+            "username": "studio",
+            "name": "Studio",
+            "biography": "hello",
+            "followers_count": 1200,
+            "follows_count": 80,
+            "media_count": 42,
+            "profile_picture_url": "https://cdn/x.jpg",
+        }
     )
     profile = await client.get_profile()
     assert profile.username == "studio" and profile.followers_count == 1200
@@ -62,7 +69,7 @@ async def test_account_discovered_once(client: IGClient, api: respx.MockRouter) 
 
 async def test_ig_user_id_override_skips_discovery(tmp_path: Path, api: respx.MockRouter) -> None:
     env = tmp_path / ".env"
-    write_env(env, IG_USER_ID="999")
+    write_env(env, IG_ACCOUNT_ID="999")
     route = api.get("/999").respond(json={"id": "999", "username": "other"})
     async with IGClient(TokenStore(env), httpx.AsyncClient()) as c:
         assert (await c.get_profile()).username == "other"
@@ -71,10 +78,14 @@ async def test_ig_user_id_override_skips_discovery(tmp_path: Path, api: respx.Mo
 
 async def test_falls_back_to_pages(client: IGClient, api: respx.MockRouter) -> None:
     api.routes["assigned"].mock(return_value=_err(100, "(#100) Tried accessing nonexisting field"))
-    pages = api.get("/me/accounts").respond(json={"data": [
-        {"id": "P1", "name": "My Page", "instagram_business_account": {"id": USER_ID, "username": "studio"}},
-        {"id": "P2", "name": "No IG"},
-    ]})
+    pages = api.get("/me/accounts").respond(
+        json={
+            "data": [
+                {"id": "P1", "name": "My Page", "instagram_business_account": {"id": USER_ID, "username": "studio"}},
+                {"id": "P2", "name": "No IG"},
+            ]
+        }
+    )
     api.get(f"/{USER_ID}").respond(json={"id": USER_ID, "username": "studio"})
     await client.get_profile()
     assert "instagram_business_account" in pages.calls.last.request.url.params["fields"]
@@ -84,7 +95,7 @@ async def test_falls_back_to_pages(client: IGClient, api: respx.MockRouter) -> N
 
 async def test_several_accounts_needs_ig_user_id(client: IGClient, api: respx.MockRouter) -> None:
     api.routes["assigned"].respond(json={"data": [{"id": "1", "username": "a"}, {"id": "2", "username": "b"}]})
-    with pytest.raises(ConfigError, match=r"@a \(1\), @b \(2\).*IG_USER_ID"):
+    with pytest.raises(ConfigError, match=r"@a \(1\), @b \(2\).*IG_ACCOUNT_ID"):
         await client.get_profile()
 
 
@@ -97,7 +108,7 @@ async def test_no_accounts(client: IGClient, api: respx.MockRouter) -> None:
 
 async def test_appsecret_proof_sent_when_secret_set(tmp_path: Path, api: respx.MockRouter) -> None:
     env = tmp_path / ".env"
-    write_env(env, IG_APP_SECRET="shh")
+    write_env(env, META_APP_SECRET="shh")
     route = api.get(f"/{USER_ID}").respond(json={"id": USER_ID, "username": "studio"})
     async with IGClient(TokenStore(env), httpx.AsyncClient()) as c:
         await c.get_profile()
@@ -109,16 +120,25 @@ async def test_appsecret_proof_sent_when_secret_set(tmp_path: Path, api: respx.M
 
 async def test_list_recent_media_paginates(client: IGClient, api: respx.MockRouter) -> None:
     def media(i: int) -> dict:
-        return {"id": str(i), "caption": f"post {i}", "media_type": "IMAGE", "media_product_type": "FEED",
-                "timestamp": "2026-10-30T10:00:00+0000", "like_count": i, "comments_count": 0,
-                "permalink": f"https://instagram.com/p/{i}"}
+        return {
+            "id": str(i),
+            "caption": f"post {i}",
+            "media_type": "IMAGE",
+            "media_product_type": "FEED",
+            "timestamp": "2026-10-30T10:00:00+0000",
+            "like_count": i,
+            "comments_count": 0,
+            "permalink": f"https://instagram.com/p/{i}",
+        }
 
     route = api.get(f"/{USER_ID}/media").mock(
         side_effect=[
-            httpx.Response(200, json={"data": [media(1), media(2)],
-                                      "paging": {"cursors": {"after": "C1"}, "next": "https://next"}}),
-            httpx.Response(200, json={"data": [media(3)],
-                                      "paging": {"cursors": {"after": "C2"}, "next": "https://next2"}}),
+            httpx.Response(
+                200, json={"data": [media(1), media(2)], "paging": {"cursors": {"after": "C1"}, "next": "https://next"}}
+            ),
+            httpx.Response(
+                200, json={"data": [media(3)], "paging": {"cursors": {"after": "C2"}, "next": "https://next2"}}
+            ),
         ]
     )
     result = await client.list_recent_media(limit=3)
@@ -147,11 +167,21 @@ async def test_get_media_comments(client: IGClient, api: respx.MockRouter) -> No
     route = api.get("/M1/comments").respond(
         json={
             "data": [
-                {"id": "c1", "username": "alice", "text": "love it", "timestamp": "2026-10-30T10:00:00+0000",
-                 "like_count": 2, "hidden": False,
-                 "replies": {"data": [{"id": "r1"}, {"id": "r2"}]}},
-                {"id": "c2", "from": {"id": "9", "username": "bob"}, "text": "nice",
-                 "replies": {"data": [{"id": "r3"}], "paging": {"next": "https://more"}}},
+                {
+                    "id": "c1",
+                    "username": "alice",
+                    "text": "love it",
+                    "timestamp": "2026-10-30T10:00:00+0000",
+                    "like_count": 2,
+                    "hidden": False,
+                    "replies": {"data": [{"id": "r1"}, {"id": "r2"}]},
+                },
+                {
+                    "id": "c2",
+                    "from": {"id": "9", "username": "bob"},
+                    "text": "nice",
+                    "replies": {"data": [{"id": "r3"}], "paging": {"next": "https://more"}},
+                },
                 {"id": "c3", "username": "carol", "text": "no replies"},
             ]
         }
@@ -183,8 +213,14 @@ async def test_comments_unknown_media(client: IGClient, api: respx.MockRouter) -
 async def test_media_insights_reel(client: IGClient, api: respx.MockRouter) -> None:
     api.get("/R1").respond(json={"id": "R1", "media_type": "VIDEO", "media_product_type": "REELS"})
     route = api.get("/R1/insights").respond(
-        json={"data": [_insight("reach", 500), _insight("saved", 12), _insight("shares", 3),
-                       _insight("ig_reels_avg_watch_time", 4100)]}
+        json={
+            "data": [
+                _insight("reach", 500),
+                _insight("saved", 12),
+                _insight("shares", 3),
+                _insight("ig_reels_avg_watch_time", 4100),
+            ]
+        }
     )
     result = await client.get_media_insights("R1")
     assert route.calls.last.request.url.params["metric"] == ",".join(MEDIA_METRICS["REELS"])
@@ -231,18 +267,33 @@ async def test_media_insights_story_not_enough_viewers(client: IGClient, api: re
 @pytest.mark.parametrize(("period", "days"), [("day", 1), ("week", 7), ("days_28", 28)])
 async def test_account_insights_window(client: IGClient, api: respx.MockRouter, period: str, days: int) -> None:
     follows = api.get(f"/{USER_ID}/insights", params={"metric": "follows_and_unfollows"}).respond(
-        json={"data": [{"name": "follows_and_unfollows", "period": "day", "total_value": {"breakdowns": [
-            {"dimension_keys": ["follow_type"], "results": [
-                {"dimension_values": ["FOLLOWER"], "value": 3},
-                {"dimension_values": ["NON_FOLLOWER"], "value": 1},
-            ]},
-        ]}}]}
+        json={
+            "data": [
+                {
+                    "name": "follows_and_unfollows",
+                    "period": "day",
+                    "total_value": {
+                        "breakdowns": [
+                            {
+                                "dimension_keys": ["follow_type"],
+                                "results": [
+                                    {"dimension_values": ["FOLLOWER"], "value": 3},
+                                    {"dimension_values": ["NON_FOLLOWER"], "value": 1},
+                                ],
+                            },
+                        ]
+                    },
+                }
+            ]
+        }
     )
     route = api.get(f"/{USER_ID}/insights").respond(
-        json={"data": [
-            {"name": "reach", "period": "day", "total_value": {"value": 900}},
-            {"name": "saves", "period": "day", "total_value": {"value": 15}},
-        ]}
+        json={
+            "data": [
+                {"name": "reach", "period": "day", "total_value": {"value": 900}},
+                {"name": "saves", "period": "day", "total_value": {"value": 15}},
+            ]
+        }
     )
     now = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)
     result = await client.get_account_insights(period, now=now)  # type: ignore[arg-type]
@@ -293,11 +344,13 @@ async def test_expired_token_error(client: IGClient, api: respx.MockRouter) -> N
 
 
 async def test_rate_limit_error(client: IGClient, api: respx.MockRouter) -> None:
-    api.get(f"/{USER_ID}/media").mock(return_value=httpx.Response(
-        400,
-        json={"error": {"message": "Application request limit reached", "code": 4}},
-        headers={"X-Business-Use-Case-Usage": '{"1": [{"estimated_time_to_regain_access": 7}]}'},
-    ))
+    api.get(f"/{USER_ID}/media").mock(
+        return_value=httpx.Response(
+            400,
+            json={"error": {"message": "Application request limit reached", "code": 4}},
+            headers={"X-Business-Use-Case-Usage": '{"1": [{"estimated_time_to_regain_access": 7}]}'},
+        )
+    )
     with pytest.raises(MetaAPIError, match="retry after 7 minute"):
         await client.list_recent_media()
 
@@ -349,7 +402,7 @@ async def test_never_expiring_token_checked_once_and_not_refreshed(client: IGCli
 
 async def test_expiring_user_token_renewed(tmp_path: Path, api: respx.MockRouter) -> None:
     env = tmp_path / ".env"
-    write_env(env, IG_APP_ID="app1", IG_APP_SECRET="shh")
+    write_env(env, META_APP_ID="app1", META_APP_SECRET="shh")
     api.routes["debug_token"].respond(json=_expiring(3))
     exchange = api.get("/oauth/access_token").respond(
         json={"access_token": "EAAnew-token", "token_type": "bearer", "expires_in": 5183944}
@@ -386,7 +439,7 @@ async def test_debug_token_failure_does_not_block_calls(client: IGClient, api: r
 
 async def test_exchange_short_lived_token(tmp_path: Path, api: respx.MockRouter) -> None:
     env = tmp_path / ".env"
-    env.write_text("IG_APP_ID=app1\nIG_APP_SECRET=shh\n")
+    env.write_text("META_APP_ID=app1\nMETA_APP_SECRET=shh\n")
     route = api.get("/oauth/access_token").respond(json={"access_token": "EAAlong", "expires_in": 5183944})
     async with IGClient(TokenStore(env), httpx.AsyncClient()) as c:
         info = await c.exchange_short_lived_token("EAAshort")
@@ -397,13 +450,13 @@ async def test_exchange_short_lived_token(tmp_path: Path, api: respx.MockRouter)
 
 
 async def test_exchange_requires_app_credentials(client: IGClient) -> None:
-    with pytest.raises(ConfigError, match="IG_APP_ID and IG_APP_SECRET"):
+    with pytest.raises(ConfigError, match="META_APP_ID and META_APP_SECRET"):
         await client.exchange_short_lived_token("EAAshort")
 
 
 async def test_exchange_error_redacts_secret(tmp_path: Path, api: respx.MockRouter) -> None:
     env = tmp_path / ".env"
-    write_env(env, IG_APP_ID="app1", IG_APP_SECRET="app-secret-xyz")
+    write_env(env, META_APP_ID="app1", META_APP_SECRET="app-secret-xyz")
     api.get("/oauth/access_token").mock(return_value=_err(100, "bad client_secret=app-secret-xyz"))
     async with IGClient(TokenStore(env), httpx.AsyncClient(), auto_refresh=False) as c:
         with pytest.raises(MetaAPIError) as info:

@@ -50,7 +50,9 @@ def test_permission_error_lists_scopes() -> None:
 
 
 def test_story_viewers_error() -> None:
-    assert "at least 5" in str(from_response(_error(10, message="(#10) Not enough viewers for the media to show insights")))
+    assert "at least 5" in str(
+        from_response(_error(10, message="(#10) Not enough viewers for the media to show insights"))
+    )
 
 
 def test_not_found() -> None:

@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest a new tool or an improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What do you want to do?
+      description: The task you want Claude to handle on your Instagram account.
+    validations:
+      required: true
+  - type: textarea
+    id: api
+    attributes:
+      label: Meta API endpoint (if known)
+      description: Link to the Instagram Platform docs for the endpoint this would use.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

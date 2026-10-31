@@ -1,0 +1,43 @@
+name: Bug report
+description: Something doesn't work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! **Never paste access tokens, app secrets or your `.env` file here.**
+        Security problems go through a private report instead: see SECURITY.md.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Error output
+      description: Output of the failing tool or of `uv run ig-studio-mcp check` (remove IDs you don't want to share).
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: ig-studio-mcp version or commit
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: MCP client
+      options: [Claude Desktop, Claude Code, MCP Inspector, Other]
+  - type: input
+    id: environment
+    attributes:
+      label: OS and Python version
+      placeholder: e.g. Windows 11, Python 3.13
+  - type: dropdown
+    id: token
+    attributes:
+      label: Token type (from `ig-studio-mcp check`)
+      options: [SYSTEM_USER (Unified Login), USER (Facebook Login), Not sure]

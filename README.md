@@ -1,161 +1,94 @@
 # ig-studio-mcp
 
+[![CI](https://github.com/Luffy610/ig-studio-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Luffy610/ig-studio-mcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
+[![MCP](https://img.shields.io/badge/MCP-stdio-purple.svg)](https://modelcontextprotocol.io)
+
 Let Claude run your Instagram professional account through the official Graph API: analytics, comment management and publishing, all on your machine.
 
-A local [MCP](https://modelcontextprotocol.io) server (stdio) built on Meta's official
-[Instagram API with Facebook Login](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/)
-(`graph.facebook.com`, Graph API **v26.0**). It does no scraping and never logs in with a password.
+ig-studio-mcp is a local [Model Context Protocol](https://modelcontextprotocol.io) server that uses only Meta's official [Instagram API with Unified Login](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/get-started) (`graph.facebook.com`, Graph API v26.0). There's no scraping, no password login, and no Facebook Page required.
 
-> **Status:** all three phases are implemented: read-only analytics and comments, comment moderation, and publishing.
+## Contents
 
-## Tools
+- [Features](#features)
+- [Quick start](#quick-start)
+- [Connect to Claude](#connect-to-claude)
+- [Tools](#tools)
+- [Configuration](#configuration)
+- [CLI](#cli)
+- [Limits worth knowing](#limits-worth-knowing)
+- [Development](#development)
+- [Contributing](#contributing) · [Security](#security) · [License](#license)
 
-| Tool | What it does | Key args | Permissions |
-|---|---|---|---|
-| `get_profile` | Username, name, bio, website, followers, follows, media count | none | `instagram_basic`, `pages_read_engagement` |
-| `list_recent_media` | Recent posts/reels (newest first) with caption, type, timestamp, likes, comments, permalink | `limit` 1-100 (default 10) | `instagram_basic`, `pages_read_engagement` |
-| `get_media_comments` | Top-level comments on a post: id, username, text, timestamp, likes, hidden, reply count | `media_id`, `limit` 1-500 (default 50) | + `instagram_manage_comments` |
-| `get_media_insights` | Lifetime metrics for one post/reel/story; metric set chosen by media type | `media_id` | + `instagram_manage_insights` |
-| `get_account_insights` | Account totals over the last 1, 7 or 28 days | `period`: `day` / `week` / `days_28` | + `instagram_manage_insights` |
-| `reply_to_comment` | Post a public reply to a comment | `comment_id`, `message`, `confirm` | + `instagram_manage_comments` |
-| `hide_comment` | Hide (or unhide with `hide=false`) a comment. Reversible | `comment_id`, `hide`, `confirm` | + `instagram_manage_comments` |
-| `delete_comment` | Permanently delete a comment on your media | `comment_id`, `confirm` | + `instagram_manage_comments` |
-| `publish_image` | Post one JPEG with a caption | `image_url`, `caption`, `confirm` | + `instagram_content_publish` |
-| `publish_carousel` | Post 2-10 JPEGs as one post | `image_urls`, `caption`, `confirm` | + `instagram_content_publish` |
-| `get_publishing_limit` | Posts used and remaining in the rolling 24 hours | none | + `instagram_content_publish` |
+## Features
 
-### Publishing
+- **Analytics:** profile, recent posts and reels, per-post insights (reach, views, saves, shares, watch time) and account insights over 1, 7 or 28 days, including follows and unfollows.
+- **Comment management:** read, reply to, hide/unhide and delete comments.
+- **Publishing:** single images and carousels, plus a check of your daily publishing quota.
+- **Safe by default:** every tool that changes your account previews first and sends nothing until called again with `confirm=true`.
+- **One setting:** only an access token is required. The Instagram account is found from the token, and token expiry is read from Meta.
+- **Private:** runs locally over stdio. The token stays in your `.env` and is never logged or returned in tool output.
 
-A publish runs Meta's three steps:
-1. Create a media container (`POST /{ig-user-id}/media`). For carousels, there's one child container per image plus a parent with `media_type=CAROUSEL`.
-2. Check the container's `status_code` until it is `FINISHED`. Images are usually ready on the first check. The server stops waiting after about 4 minutes, within Meta's 5-minute guidance.
-3. Publish it (`POST /{ig-user-id}/media_publish`).
+## Quick start
 
-The result includes the new post's `media_id` and `permalink`. If a step fails, nothing is posted. Any leftover container expires on its own after 24 hours.
+**You need:**
+- An Instagram **Creator or Business** account
+- A Meta app using the **Instagram API with Unified Login**
+- [uv](https://docs.astral.sh/uv/) and Python 3.11+
 
-Requirements:
-- Images must be public JPEG URLs that Instagram can download itself: no login, no expiring links. At most 8 MB, aspect ratio 4:5 to 1.91:1.
-- Captions: at most 2,200 characters, 30 hashtags and 20 @mentions. These limits are checked before anything is sent.
-- The live API reports a cap of **100 API posts per rolling 24 hours**; a carousel counts as one. Some of Meta's docs still say 50.
-- Carousels are limited to 10 images. Meta's guide says 20, but its error reference says 10, so the server uses 10.
-- Every carousel image is cropped to the first image's aspect ratio.
-
-### Write tools need confirmation
-
-Every write tool takes `confirm` (default `false`). With `confirm=false`, the tool sends **nothing** to Instagram. It returns a preview instead: the action, the comment ID, the exact reply text, and the Graph API call it would make. Claude is told to show you that preview and repeat the call with `confirm=true` only after you approve. In the result, `executed` tells you whether anything was actually sent.
-
-Limits from Meta:
-- Replies always attach to the top-level comment.
-- Hidden comments and live-video comments can't be replied to.
-- Comments you wrote on your own media can't be hidden.
-- Hidden comments drop out of `get_media_comments`, so keep the comment ID if you may want to unhide it later.
-- Deleting works only for comments on your own media.
-
-Metrics returned by `get_media_insights`:
-
-- **Feed posts & carousels:** reach, views, likes, comments, saves, shares, total_interactions, profile_visits, follows
-- **Reels:** reach, views, likes, comments, saves, shares, total_interactions, ig_reels_avg_watch_time, ig_reels_video_view_total_time (ms)
-- **Stories:** reach, views, shares, replies, navigation, follows, profile_visits, total_interactions
-
-`get_account_insights` returns reach, views, accounts_engaged, total_interactions, likes, comments, shares, saves, replies, profile_links_taps, plus **follows** (new followers) and **unfollows**.
-
-Metrics Instagram doesn't return for a given item are listed under `unavailable` instead of failing the whole call.
-Deprecated metrics (`impressions`, `plays`, `video_views`, `profile_views`, `website_clicks`, `engagement`) are not used.
-
-## Prerequisites
-
-1. **An Instagram Creator or Business account.** In the Instagram app: Settings → Account type and tools → Switch to professional account.
-2. **A Meta Business portfolio** at [business.facebook.com](https://business.facebook.com) that owns, or has access to, the Instagram account. Add it under Business settings → Accounts → Instagram accounts.
-3. **A Meta app** of type *Business* at <https://developers.facebook.com/apps>, connected to that Business portfolio.
-4. **Permissions** on the token:
-   - `instagram_basic`, `pages_read_engagement`, `pages_show_list`
-   - `instagram_manage_comments`
-   - `instagram_manage_insights`
-   - `instagram_content_publish` (only needed for Phase 3; grant it now to avoid regenerating the token later)
-5. **[uv](https://docs.astral.sh/uv/)** and Python 3.11+. **Node.js** is only needed for MCP Inspector.
-
-## Install
+**1. Install**
 
 ```bash
-git clone <this repo> ig-studio-mcp
+git clone https://github.com/Luffy610/ig-studio-mcp.git
 cd ig-studio-mcp
 uv sync
+```
+
+**2. Get a token.** Follow the step-by-step guide in **[docs/TOKEN_SETUP.md](docs/TOKEN_SETUP.md)**. It takes about 15 minutes and needs no App Review.
+
+**3. Configure.** Copy the example file:
+
+```bash
 cp .env.example .env
 ```
 
-## Token setup
+Then set the one required value in `.env`:
 
-Only one setting is required: `IG_ACCESS_TOKEN`, a Facebook Login token that starts with `EAA`. The server finds the Instagram account from the token and reads the token's expiry from Meta's `debug_token` endpoint.
+```dotenv
+IG_ACCESS_TOKEN=EAA...
+```
 
-> Instagram Login tokens (`IGAA...`) don't work here. They belong to the separate `graph.instagram.com` API.
-
-### Option A: system-user token (recommended, never expires)
-
-1. In [Business settings](https://business.facebook.com/settings) go to **Users → System users → Add**. Create an admin system user.
-2. Click **Assign assets** and add both the **Instagram account** (full control) and your **app**.
-3. Click **Generate token**. Pick your app, set expiration to **Never**, tick the permissions listed above, and generate.
-4. Put the token in `.env`:
-   ```dotenv
-   IG_ACCESS_TOKEN=EAA...
-   ```
-
-This token doesn't expire, so there's nothing to refresh. The server finds the account through `/me/assigned_instagram_accounts`.
-
-### Option B: user token (expires in ~60 days)
-
-1. In [Graph API Explorer](https://developers.facebook.com/tools/explorer/), choose your app, add the permissions listed above, and click **Generate Access Token**. Then log in and pick the Page connected to your Instagram account.
-2. Put your app ID and secret in `.env` (from App settings → Basic):
-   ```dotenv
-   IG_APP_ID=...
-   IG_APP_SECRET=...
-   ```
-3. Exchange the short-lived token (about 1 hour) for a long-lived one (about 60 days):
-   ```bash
-   uv run ig-studio-mcp exchange-token
-   ```
-   Paste the token when prompted (input is hidden). The long-lived token is written to `.env`.
-
-With a user token, the account is found through the Facebook Page it's linked to (`/me/accounts`). When the token is within 10 days of expiry and `IG_APP_ID`/`IG_APP_SECRET` are set, the server re-exchanges it automatically, at most once a day. Meta doesn't document whether re-exchanging extends a long-lived user token. If it stops working, generate a new one, or switch to a system-user token.
-
-### Optional settings
-
-| Variable | When you need it |
-|---|---|
-| `IG_USER_ID` | The token can reach several Instagram accounts. `check` lists them; set this to pick one. |
-| `IG_APP_ID`, `IG_APP_SECRET` | User tokens: `exchange-token` and automatic renewal. If `IG_APP_SECRET` is set, every call also sends `appsecret_proof`, which is required when your app has *Require App Secret* turned on. |
-
-### Verify
+**4. Check**
 
 ```bash
 uv run ig-studio-mcp check
 ```
 
-This prints the token type, its expiry, any missing permissions, the reachable Instagram accounts, and `OK - using @yourname ...`.
+```text
+Token: SYSTEM_USER for app 'my app', never expires
+Instagram accounts reachable: @your_handle (1784...)
+OK - using @your_handle (id 1784..., 1234 followers)
+```
 
-The access token is never logged or printed. Request URLs are kept out of logs, error messages are scrubbed, and Meta's paging URLs (which contain the token) are never returned by any tool.
-
-### Where `.env` is read from
-
-The server reads `$IG_STUDIO_ENV_FILE` if set, otherwise `./.env`, otherwise the project root's `.env`. It re-reads the file on every call, so a new token takes effect without a restart. Restart only if you switch to a different Instagram account. Values in `.env` take precedence over process environment variables.
-
-## Use with Claude
+## Connect to Claude
 
 ### Claude Desktop
 
-Edit `claude_desktop_config.json`. On Windows it's at `%APPDATA%\Claude\claude_desktop_config.json`; on macOS, `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Add the server to `claude_desktop_config.json`. On Windows the file is at `%APPDATA%\Claude\claude_desktop_config.json`; on macOS it's at `~/Library/Application Support/Claude/claude_desktop_config.json`.
 
 ```json
 {
   "mcpServers": {
     "ig-studio": {
       "command": "uv",
-      "args": ["--directory", "D:\\Projects\\ig-studio-mcp", "run", "ig-studio-mcp"]
+      "args": ["--directory", "/absolute/path/to/ig-studio-mcp", "run", "ig-studio-mcp"]
     }
   }
 }
 ```
 
-Use the absolute path to your checkout (on macOS/Linux, e.g. `/Users/you/ig-studio-mcp`). Restart Claude Desktop afterwards.
+On Windows, write the path with escaped backslashes, e.g. `"C:\\path\\to\\ig-studio-mcp"`. Restart Claude Desktop afterwards.
 
 ### Claude Code
 
@@ -163,43 +96,130 @@ Use the absolute path to your checkout (on macOS/Linux, e.g. `/Users/you/ig-stud
 claude mcp add ig-studio --scope user -- uv --directory /absolute/path/to/ig-studio-mcp run ig-studio-mcp
 ```
 
-Then run `claude mcp list` to confirm it's connected.
-
 ### MCP Inspector
 
-From the project directory:
+From the project folder, run:
 
 ```bash
 npx @modelcontextprotocol/inspector uv run ig-studio-mcp
 ```
 
-Open the URL it prints, click **Connect**, then go to **Tools → List Tools** and run each tool.
+Open the URL it prints, click **Connect**, then go to **Tools → List Tools**.
+
+**Try asking Claude:**
+- "How did my last 5 reels do?"
+- "Summarise the comments on my latest post and draft replies."
+- "Hide the spam comments on my last reel."
+
+## Tools
+
+| Tool | What it does | Key arguments | Permission |
+|---|---|---|---|
+| `get_profile` | Username, name, bio, website, followers, follows, media count | none | `instagram_basic` |
+| `list_recent_media` | Recent posts and reels (newest first) with caption, type, time, likes, comments, link | `limit` 1-100 | `instagram_basic` |
+| `get_media_comments` | Top-level comments: id, username, text, time, likes, reply count | `media_id`, `limit` 1-500 | `instagram_manage_comments` |
+| `get_media_insights` | Lifetime metrics for a post, reel or story; metrics chosen by media type | `media_id` | `instagram_manage_insights` |
+| `get_account_insights` | Account totals for the last 1, 7 or 28 days, including follows and unfollows | `period`: `day`, `week`, `days_28` | `instagram_manage_insights` |
+| `reply_to_comment` | Post a public reply | `comment_id`, `message`, `confirm` | `instagram_manage_comments` |
+| `hide_comment` | Hide, or unhide with `hide=false`. Reversible | `comment_id`, `hide`, `confirm` | `instagram_manage_comments` |
+| `delete_comment` | Permanently delete a comment on your media | `comment_id`, `confirm` | `instagram_manage_comments` |
+| `publish_image` | Publish one JPEG with a caption | `image_url`, `caption`, `confirm` | `instagram_content_publish` |
+| `publish_carousel` | Publish 2-10 JPEGs as one post | `image_urls`, `caption`, `confirm` | `instagram_content_publish` |
+| `get_publishing_limit` | API posts used and remaining in the rolling 24 hours | none | `instagram_content_publish` |
+
+Notes:
+- **Media insights:** feed posts and carousels return reach, views, likes, comments, saves, shares, total_interactions, profile_visits and follows. Reels add `ig_reels_avg_watch_time` and `ig_reels_video_view_total_time` (in ms). Stories return reach, views, shares, replies, navigation, follows, profile_visits and total_interactions.
+- **Missing metrics:** if Instagram doesn't return a metric for an item, it's listed under `unavailable`; the rest of the call still succeeds.
+- **Deprecated metrics are never requested:** `impressions`, `plays`, `video_views`, `profile_views`, `website_clicks`, `engagement`.
+
+### Write tools need confirmation
+
+Every write tool takes `confirm`, which defaults to `false`. With `confirm=false` the tool sends **nothing** to Instagram. Instead it returns a preview: the action, the exact text, and the API call it would make. Claude is told to show you the preview and call again with `confirm=true` only after you approve. In every result, `executed` tells you whether anything was actually sent.
+
+### Publishing
+
+A publish takes three steps:
+1. Create a media container.
+2. Check the container's `status_code` until it's `FINISHED`. Images are usually ready right away; the server gives up after about 4 minutes, within Meta's 5-minute guidance.
+3. Publish the container.
+
+If any step fails, nothing is posted. Images must be **public JPEG URLs**, at most 8 MB, with an aspect ratio between 4:5 and 1.91:1. Captions can have up to 2,200 characters, 30 hashtags and 20 @mentions, and are checked before anything is sent.
+
+## Configuration
+
+Settings are read from `.env`, which is git-ignored. See [`.env.example`](.env.example) for the full list.
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `IG_ACCESS_TOKEN` | **yes** | Token from **API setup with Unified login → Generate access tokens** (starts with `EAA`). See [docs/TOKEN_SETUP.md](docs/TOKEN_SETUP.md). |
+| `IG_ACCOUNT_ID` | no | Which Instagram account to use, if the token can reach several. `check` lists them. |
+| `META_APP_ID`, `META_APP_SECRET` | no | Meta app credentials (**App settings → Basic**). Needed only for expiring Facebook Login user tokens. If the secret is set, every call also sends `appsecret_proof`. |
+| `IG_STUDIO_ENV_FILE` | no | Path to a different `.env` file. This one is a process environment variable, not a `.env` entry. |
+
+How settings are found:
+- **Where `.env` comes from:** `$IG_STUDIO_ENV_FILE`, then `./.env`, then the project root's `.env`.
+- **Precedence:** values in `.env` override process environment variables.
+- **No restart needed:** the file is re-read on every call, so a new token takes effect immediately.
+
+**Account discovery.** Unified Login system-user tokens find the account through `/me/assigned_instagram_accounts`. Facebook Login user tokens fall back to the Page-linked account in `/me/accounts`.
+
+**Token expiry.** System-user tokens usually never expire. For tokens that do expire, the server reads the expiry from `debug_token`. If `META_APP_ID` and `META_APP_SECRET` are set, it renews a Facebook Login user token when it's within 10 days of expiry. Unified Login tokens with an expiry date have to be regenerated (see [docs/TOKEN_SETUP.md](docs/TOKEN_SETUP.md#refreshing-and-rotating-the-token)).
 
 ## CLI
 
 | Command | Purpose |
 |---|---|
 | `uv run ig-studio-mcp` | Run the MCP server over stdio (what Claude launches) |
-| `uv run ig-studio-mcp check` | Show token type, expiry and permissions; list reachable accounts; fetch the profile |
-| `uv run ig-studio-mcp refresh-token` | Re-exchange an expiring user token now (no-op for tokens that never expire) |
-| `uv run ig-studio-mcp exchange-token` | Swap a short-lived user token for a long-lived one (needs `IG_APP_ID` and `IG_APP_SECRET`) |
+| `uv run ig-studio-mcp check` | Show the token type, expiry and missing permissions, list reachable accounts, and fetch the profile |
+| `uv run ig-studio-mcp refresh-token` | Renew an expiring Facebook Login user token (does nothing for tokens that never expire) |
+| `uv run ig-studio-mcp exchange-token` | Swap a short-lived Facebook Login user token for a long-lived one (needs `META_APP_ID` and `META_APP_SECRET`) |
 
 ## Limits worth knowing
 
-- Insights can lag **up to 48 hours**. Story insights exist only for 24 hours and need at least 5 viewers. Media inside a carousel has no insights of its own.
-- Follower metrics (follows/unfollows) may be unavailable for accounts with **fewer than 100 followers**.
-- `get_media_comments` returns top-level comments only. Replies are counted, not listed. Comments on age-gated media aren't returned.
-- Calls are rate-limited per account over a rolling 24 hours. Rate-limit errors say how many minutes to wait when Meta provides that.
-- The Graph API version is pinned in one constant: `GRAPH_API_VERSION` in `src/ig_studio_mcp/client.py`.
-- `/me/assigned_instagram_accounts`, used to find the account for system-user tokens, works in practice but isn't in Meta's public reference. If it ever fails, the server falls back to `/me/accounts`, and you can always set `IG_USER_ID`.
+- **Insights lag:** data can be up to 48 hours behind.
+  - Story insights exist for only 24 hours and need at least 5 viewers.
+  - Items inside a carousel have no insights of their own.
+- **Follower metrics** may be unavailable for accounts with fewer than 100 followers.
+- **Comments:**
+  - `get_media_comments` returns top-level comments only. Replies are counted, not listed.
+  - Hidden comments disappear from the list, so keep the ID if you may want to unhide one.
+- **Rate limits:** Instagram rate-limits calls per account over a rolling 24 hours. When Meta says how long to wait, rate-limit errors include it.
+- **Publishing quota:** 100 API posts per rolling 24 hours, with a carousel counting as one. Some of Meta's docs still say 50, so check yours with `get_publishing_limit`.
+- **API version:** pinned in one place, `GRAPH_API_VERSION` in [`client.py`](src/ig_studio_mcp/client.py).
 
 ## Development
 
 ```bash
-uv run pytest
+uv sync                    # install, including dev tools
+uv run pytest              # 120+ tests, all HTTP mocked; no Instagram account needed
+uv run ruff check .        # lint
+uv run ruff format .       # format
 ```
 
-Layout: `server.py` (MCP tools) → `client.py` (all HTTP) → `auth.py` (credentials / `.env`), with `models.py` (trimmed responses) and `errors.py` (Meta error codes → actionable messages). `cli.py` provides the commands above.
+Code layout:
+
+| File | Responsibility |
+|---|---|
+| [`server.py`](src/ig_studio_mcp/server.py) | MCP tool definitions only |
+| [`client.py`](src/ig_studio_mcp/client.py) | Every HTTP call |
+| [`auth.py`](src/ig_studio_mcp/auth.py) | Credentials and the `.env` file |
+| [`models.py`](src/ig_studio_mcp/models.py) | Trimmed response models |
+| [`errors.py`](src/ig_studio_mcp/errors.py) | Meta error codes → actionable messages |
+| [`cli.py`](src/ig_studio_mcp/cli.py) | Command-line entry point |
+
+CI runs lint, tests on Python 3.11 to 3.14 (plus Windows and macOS) and a package build on every push and pull request.
+
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md), and check the [changelog](CHANGELOG.md) for what changed recently.
+
+## Security
+
+Please report vulnerabilities privately; see [SECURITY.md](SECURITY.md). Never paste access tokens or `.env` contents into issues.
+
+## License
+
+[MIT](LICENSE) © 2026 Dhruv Kotwani
 
 ## Disclaimer
 
