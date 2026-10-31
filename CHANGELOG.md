@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows [Kee
 ## [Unreleased]
 
 ### Added
+- `get_audience_demographics`: age, gender, country and city of followers, or of the engaged or reached audience.
+- `get_follower_active_hours`: followers online per hour of day, converted to any IANA timezone.
 - MIT license, contributing guide, code of conduct, security policy, issue and PR templates.
 - GitHub Actions CI: lint (ruff), tests on Python 3.11 to 3.14 plus Windows and macOS, package build check.
 - Dependabot for Python dependencies and GitHub Actions.

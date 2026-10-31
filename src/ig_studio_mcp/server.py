@@ -21,8 +21,10 @@ from .client import (
 from .errors import IGStudioError
 from .models import (
     AccountInsights,
+    AudienceDemographics,
     CommentAction,
     CommentList,
+    FollowerActiveHours,
     MediaInsights,
     MediaList,
     Profile,
@@ -170,6 +172,49 @@ async def get_account_insights(period: Literal["day", "week", "days_28"] = "day"
     plus `unavailable` and `notes`. Some metrics need 100+ followers. Data can lag up to 48 hours.
     """
     return await _run(get_client().get_account_insights(period))
+
+
+@mcp.tool(annotations=READ_ONLY)
+async def get_audience_demographics(
+    audience: Literal["followers", "engaged", "reached"] = "followers",
+    breakdown: Literal["all", "age", "gender", "country", "city", "age_gender"] = "all",
+    timeframe: Literal["this_week", "this_month"] = "this_month",
+) -> AudienceDemographics:
+    """Who the audience is: age, gender, country and city breakdowns.
+
+    Use when the user asks about their followers' or viewers' demographics: age groups,
+    gender split, top countries or cities.
+
+    Args:
+        audience: "followers" (current followers, default), "engaged" (accounts that interacted
+            with content in the timeframe) or "reached" (accounts that saw content in the timeframe).
+        breakdown: "all" (age, gender, country and city; default), one of those, or "age_gender"
+            for the combined split (e.g. "25-34, male").
+        timeframe: "this_week" or "this_month" (default). Affects engaged and reached only.
+
+    Returns: breakdowns {name: [{label, value, percent}]} sorted largest first, plus `unavailable`
+    and `notes`. Countries are ISO codes (IN, US). Cities are limited to the top 45.
+    Limits: needs 100+ followers (or 100+ engagements in the timeframe for engaged/reached).
+    """
+    return await _run(get_client().get_audience_demographics(audience, breakdown, timeframe))
+
+
+@mcp.tool(annotations=READ_ONLY)
+async def get_follower_active_hours(days: int = 30, timezone: str = "UTC") -> FollowerActiveHours:
+    """When followers are online: average followers on Instagram for each hour of the day.
+
+    Use when the user asks when their followers are most active or the best time to post.
+    Pass the user's own timezone so the hours are local to them.
+
+    Args:
+        days: How many recent days to average, 1-30 (default 30, the maximum Instagram allows).
+        timezone: IANA timezone for the hours, e.g. "Asia/Kolkata", "America/New_York" (default "UTC").
+
+    Returns: hours [{hour, avg_online_followers}] for 0-23, best_hours (top 3, best first),
+    days_with_data and notes.
+    Limits: needs 100+ followers; Instagram keeps only the last 30 days of this data.
+    """
+    return await _run(get_client().get_follower_active_hours(days, timezone))
 
 
 @mcp.tool(annotations=WRITE)

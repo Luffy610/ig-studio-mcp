@@ -24,6 +24,7 @@ ig-studio-mcp is a local [Model Context Protocol](https://modelcontextprotocol.i
 ## Features
 
 - **Analytics:** profile, recent posts and reels, per-post insights (reach, views, saves, shares, watch time) and account insights over 1, 7 or 28 days, including follows and unfollows.
+- **Audience:** age, gender, country and city of your followers (or of the people you reached or engaged), and the hours your followers are online, in your timezone.
 - **Comment management:** read, reply to, hide/unhide and delete comments.
 - **Publishing:** single images and carousels, plus a check of your daily publishing quota.
 - **Safe by default:** every tool that changes your account previews first and sends nothing until called again with `confirm=true`.
@@ -108,6 +109,7 @@ Open the URL it prints, click **Connect**, then go to **Tools → List Tools**.
 
 **Try asking Claude:**
 - "How did my last 5 reels do?"
+- "Where are my followers from, and when is the best time to post?"
 - "Summarise the comments on my latest post and draft replies."
 - "Hide the spam comments on my last reel."
 
@@ -120,6 +122,8 @@ Open the URL it prints, click **Connect**, then go to **Tools → List Tools**.
 | `get_media_comments` | Top-level comments: id, username, text, time, likes, reply count | `media_id`, `limit` 1-500 | `instagram_manage_comments` |
 | `get_media_insights` | Lifetime metrics for a post, reel or story; metrics chosen by media type | `media_id` | `instagram_manage_insights` |
 | `get_account_insights` | Account totals for the last 1, 7 or 28 days, including follows and unfollows | `period`: `day`, `week`, `days_28` | `instagram_manage_insights` |
+| `get_audience_demographics` | Age, gender, country and city of followers, or of the engaged or reached audience | `audience`, `breakdown`, `timeframe` | `instagram_manage_insights` |
+| `get_follower_active_hours` | Average followers online for each hour of the day, plus the best 3 hours | `days` 1-30, `timezone` | `instagram_manage_insights` |
 | `reply_to_comment` | Post a public reply | `comment_id`, `message`, `confirm` | `instagram_manage_comments` |
 | `hide_comment` | Hide, or unhide with `hide=false`. Reversible | `comment_id`, `hide`, `confirm` | `instagram_manage_comments` |
 | `delete_comment` | Permanently delete a comment on your media | `comment_id`, `confirm` | `instagram_manage_comments` |
@@ -179,7 +183,10 @@ How settings are found:
 - **Insights lag:** data can be up to 48 hours behind.
   - Story insights exist for only 24 hours and need at least 5 viewers.
   - Items inside a carousel have no insights of their own.
-- **Follower metrics** may be unavailable for accounts with fewer than 100 followers.
+- **Follower and audience metrics** (follows/unfollows, demographics, active hours) need 100+ followers, or 100+ engagements in the timeframe for the engaged audience.
+  - Demographics: `timeframe` can only be `this_week` or `this_month`, and only affects the engaged and reached audiences.
+  - Cities are limited to the top 45.
+  - Active hours cover at most the last 30 days. Instagram reports them in Pacific time, and the server converts them to the `timezone` you pass.
 - **Comments:**
   - `get_media_comments` returns top-level comments only. Replies are counted, not listed.
   - Hidden comments disappear from the list, so keep the ID if you may want to unhide one.

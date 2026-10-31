@@ -26,6 +26,7 @@ dependencies = [
     "mcp>=2.3,<3",
     "pydantic>=2.14.2",
     "python-dotenv>=1.2.4",
+    "tzdata>=2025.2",
 ]
 
 [project.urls]

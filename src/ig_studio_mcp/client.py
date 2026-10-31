@@ -13,6 +13,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
@@ -29,9 +30,13 @@ from .errors import (
 from .models import (
     AccountInsights,
     AccountRef,
+    AudienceBucket,
+    AudienceDemographics,
     Comment,
     CommentAction,
     CommentList,
+    FollowerActiveHours,
+    HourActivity,
     MediaInsights,
     MediaItem,
     MediaList,
@@ -121,6 +126,25 @@ FOLLOW_TYPE_NAMES = {"FOLLOWER": "follows", "NON_FOLLOWER": "unfollows"}
 Period = Literal["day", "week", "days_28"]
 PERIOD_DAYS: dict[str, int] = {"day": 1, "week": 7, "days_28": 28}
 
+# Audience demographics (lifetime metrics, need 100+ followers or engagements).
+Audience = Literal["followers", "engaged", "reached"]
+Breakdown = Literal["all", "age", "gender", "country", "city", "age_gender"]
+Timeframe = Literal["this_week", "this_month"]  # the only values Graph API v20+ accepts
+DEMOGRAPHIC_METRICS: dict[str, str] = {
+    "followers": "follower_demographics",
+    "engaged": "engaged_audience_demographics",
+    "reached": "reached_audience_demographics",
+}
+DEMOGRAPHIC_BREAKDOWNS: dict[str, str] = {
+    "age": "age",
+    "gender": "gender",
+    "country": "country",
+    "city": "city",
+    "age_gender": "age,gender",
+}
+GENDER_LABELS = {"F": "female", "M": "male", "U": "unknown"}
+MAX_ACTIVE_HOURS_DAYS = 30  # Meta rejects online_followers ranges longer than 30 days
+
 MAX_MEDIA_LIMIT = 100
 MAX_COMMENT_LIMIT = 500
 COMMENTS_PAGE_SIZE = 50  # Meta returns at most 50 comments per query
@@ -204,6 +228,25 @@ def image_url_problems(url: str) -> tuple[list[str], list[str]]:
     if not url.isascii():
         warnings.append(f"{url} contains non-ASCII characters; Meta recommends ASCII-only URLs.")
     return errors, warnings
+
+
+def _parse_breakdown(payload: dict[str, Any]) -> list[AudienceBucket]:
+    """Demographic breakdown results -> buckets, largest first, with percentages."""
+    rows: list[tuple[str, int]] = []
+    for item in payload.get("data", []):
+        for breakdown in (item.get("total_value") or {}).get("breakdowns", []):
+            for result in breakdown.get("results", []):
+                value = result.get("value")
+                if not isinstance(value, int):
+                    continue
+                dims = [GENDER_LABELS.get(d, d) for d in result.get("dimension_values") or []]
+                rows.append((", ".join(dims), value))
+    total = sum(value for _, value in rows)
+    rows.sort(key=lambda row: row[1], reverse=True)
+    return [
+        AudienceBucket(label=label, value=value, percent=round(100 * value / total, 1) if total else 0.0)
+        for label, value in rows
+    ]
 
 
 def _to_comment(raw: dict[str, Any]) -> Comment:
@@ -547,6 +590,123 @@ class IGClient:
             success=bool(payload.get("success")),
             summary=f"Deleted comment {comment_id}.",
             request=f"DELETE /{GRAPH_API_VERSION}/{comment_id}",
+        )
+
+    # ------------------------------------------------------------------ audience
+
+    async def get_audience_demographics(
+        self, audience: Audience = "followers", breakdown: Breakdown = "all", timeframe: Timeframe = "this_month"
+    ) -> AudienceDemographics:
+        """Age, gender, country and city of followers or of the engaged/reached audience."""
+        if audience not in DEMOGRAPHIC_METRICS:
+            raise ConfigError(f"audience must be one of {sorted(DEMOGRAPHIC_METRICS)}, got {audience!r}.")
+        if breakdown != "all" and breakdown not in DEMOGRAPHIC_BREAKDOWNS:
+            raise ConfigError(f"breakdown must be 'all' or one of {sorted(DEMOGRAPHIC_BREAKDOWNS)}, got {breakdown!r}.")
+        if timeframe not in ("this_week", "this_month"):
+            raise ConfigError(f"timeframe must be 'this_week' or 'this_month', got {timeframe!r}.")
+        names = ["age", "gender", "country", "city"] if breakdown == "all" else [breakdown]
+        path = f"{await self._user_path()}/insights"
+        params = {
+            "metric": DEMOGRAPHIC_METRICS[audience],
+            "period": "lifetime",
+            "metric_type": "total_value",
+            "timeframe": timeframe,
+        }
+        results = await asyncio.gather(
+            *(self._get(path, {**params, "breakdown": DEMOGRAPHIC_BREAKDOWNS[name]}) for name in names),
+            return_exceptions=True,
+        )
+        breakdowns: dict[str, list[AudienceBucket]] = {}
+        unavailable: list[str] = []
+        errors: list[MetaAPIError] = []
+        for name, result in zip(names, results, strict=True):
+            if isinstance(result, MetaAPIError) and (result.is_invalid_parameter or result.is_permission):
+                errors.append(result)
+                unavailable.append(name)
+            elif isinstance(result, BaseException):
+                raise result
+            elif buckets := _parse_breakdown(result):
+                breakdowns[name] = buckets
+            else:
+                unavailable.append(name)
+        if errors and not breakdowns:
+            raise errors[0]
+        notes = ["Percentages are shares of each breakdown's total, which can differ from the follower count."]
+        if audience == "followers":
+            notes.append("Follower demographics describe current followers; timeframe doesn't change them.")
+        if "city" in breakdowns:
+            notes.append("Instagram returns at most the top 45 cities.")
+        if "country" in breakdowns:
+            notes.append("Countries are ISO 3166-1 alpha-2 codes (e.g. IN, US).")
+        if unavailable:
+            notes.append(
+                "Some breakdowns are unavailable: they need 100+ followers (or 100+ engagements in the timeframe)."
+            )
+        return AudienceDemographics(
+            audience=audience,
+            timeframe=timeframe,
+            breakdowns=breakdowns,
+            unavailable=unavailable,
+            notes=notes,
+        )
+
+    async def get_follower_active_hours(
+        self, days: int = 30, timezone: str = "UTC", *, now: datetime | None = None
+    ) -> FollowerActiveHours:
+        """When followers are online: average count per hour of day over the last `days` days."""
+        days = _clamp(days, 1, MAX_ACTIVE_HOURS_DAYS)
+        try:
+            tz = ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ConfigError(f"Unknown timezone {timezone!r}; use an IANA name like 'Asia/Kolkata' or 'UTC'.") from exc
+        until = (now or datetime.now(UTC)).replace(microsecond=0)
+        since = until - timedelta(days=days)
+        payload = await self._get(
+            f"{await self._user_path()}/insights",
+            {
+                "metric": "online_followers",
+                "period": "lifetime",
+                "since": int(since.timestamp()),
+                "until": int(until.timestamp()),
+            },
+        )
+        sums = [0.0] * 24
+        counts = [0] * 24
+        days_with_data = 0
+        for item in payload.get("data", []):
+            for entry in item.get("values", []):
+                hourly = entry.get("value")
+                if not isinstance(hourly, dict) or not hourly:
+                    continue
+                days_with_data += 1
+                # Each entry covers one Pacific-time day ending at end_time (midnight PT, 07:00/08:00 UTC),
+                # and its keys are Pacific hours, so hour h of that day starts at end_time - 24h + h.
+                day_start = datetime.strptime(entry["end_time"], "%Y-%m-%dT%H:%M:%S%z") - timedelta(hours=24)
+                for key, count in hourly.items():
+                    if not isinstance(count, (int, float)):
+                        continue
+                    local_hour = (day_start + timedelta(hours=int(key))).astimezone(tz).hour
+                    sums[local_hour] += count
+                    counts[local_hour] += 1
+        hours = [
+            HourActivity(hour=hour, avg_online_followers=round(sums[hour] / counts[hour], 1))
+            for hour in range(24)
+            if counts[hour]
+        ]
+        best = sorted(hours, key=lambda h: h.avg_online_followers, reverse=True)[:3]
+        notes = [
+            f"Hours are converted to {timezone} from Instagram's Pacific-time reporting.",
+            "Counts are followers who were on Instagram during that hour, averaged over the days with data.",
+        ]
+        if not days_with_data:
+            notes.append("Instagram returned no data: this metric needs 100+ followers and covers the last 30 days.")
+        return FollowerActiveHours(
+            timezone=timezone,
+            days_requested=days,
+            days_with_data=days_with_data,
+            hours=hours,
+            best_hours=[h.hour for h in best],
+            notes=notes,
         )
 
     # ------------------------------------------------------------------ publishing

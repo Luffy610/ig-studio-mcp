@@ -30,6 +30,8 @@ READ_TOOLS = {
     "get_media_insights",
     "get_account_insights",
     "get_publishing_limit",
+    "get_audience_demographics",
+    "get_follower_active_hours",
 }
 WRITE_TOOLS = {"reply_to_comment", "hide_comment", "delete_comment", "publish_image", "publish_carousel"}
 

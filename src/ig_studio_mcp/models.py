@@ -118,6 +118,34 @@ class AccountRef(BaseModel):
     page_name: str | None = None
 
 
+class AudienceBucket(BaseModel):
+    label: str = Field(description="e.g. '25-34', 'female', 'IN' (ISO country code), 'Mumbai, Maharashtra'")
+    value: int
+    percent: float = Field(description="Share of this breakdown's total, 0-100")
+
+
+class AudienceDemographics(BaseModel):
+    audience: Literal["followers", "engaged", "reached"]
+    timeframe: Literal["this_week", "this_month"]
+    breakdowns: dict[str, list[AudienceBucket]] = Field(description="Buckets per breakdown, largest first")
+    unavailable: list[str] = Field(default_factory=list, description="Breakdowns Instagram did not return")
+    notes: list[str] = Field(default_factory=list)
+
+
+class HourActivity(BaseModel):
+    hour: int = Field(description="Hour of day (0-23) in the requested timezone")
+    avg_online_followers: float
+
+
+class FollowerActiveHours(BaseModel):
+    timezone: str
+    days_requested: int
+    days_with_data: int
+    hours: list[HourActivity] = Field(description="Average followers online per hour, in hour order")
+    best_hours: list[int] = Field(description="The 3 hours with the most followers online, best first")
+    notes: list[str] = Field(default_factory=list)
+
+
 class TokenInfo(BaseModel):
     """Result of a token exchange. Never contains the token itself."""
 
